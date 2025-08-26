@@ -11,6 +11,24 @@ env:
   PORT: 5001
   IMAGE: ${{vars.IMAGE}}:${{github.sha}}
 jobs:
+  show-oidc-claims:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Request GitHub OIDC Token
+        id: idtoken
+        run: |
+          echo "ID_TOKEN=$(echo "${{ steps.idtoken.outputs.token }}")"
+        shell: bash
+
+      - name: Decode OIDC Token
+        run: |
+          TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL" | jq -r .value)
+          echo "Token: $TOKEN"
+          echo "$TOKEN" | cut -d "." -f2 | base64 -d | jq
   test:
     runs-on: ubuntu-latest
     name: Setup, test, and build project
@@ -27,15 +45,20 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     name: Setup project, Authorize GitHub Actions to GCP and Docker Hub, and deploy
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Authenticate for GCP
-        id: gcp-auth
-        uses: google-github-actions/auth@v0
+      - name: 'Authenticate to Google Cloud (OIDC)'
+        id: 'auth'        
+        uses: 'google-github-actions/auth@v1'
         with:
-          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          create_credentials_file: true
+          workload_identity_provider: 'projects/847523001943/locations/global/workloadIdentityPools/gcr-ci-cd-identity-pool/providers/gcr-ci-cd-github-provider'
+          service_account: 'ci-cd-sa@gcr-ci-cd-project-470120.iam.gserviceaccount.com'
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v0
